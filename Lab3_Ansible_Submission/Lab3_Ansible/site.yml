@@ -1,0 +1,82 @@
+---
+- name: Configure target nodes and deploy web application
+  hosts: target_nodes
+  become: true
+  gather_facts: true
+
+  vars:
+    app_name: lab3-web
+    web_root: /var/www/lab3
+
+  tasks:
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - nginx
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ web_root }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Deploy application page
+      ansible.builtin.template:
+        src: templates/index.html.j2
+        dest: "{{ web_root }}/index.html"
+        owner: www-data
+        group: www-data
+        mode: "0644"
+      notify: Restart nginx
+
+    - name: Configure nginx virtual host
+      ansible.builtin.copy:
+        dest: /etc/nginx/sites-available/lab3-web
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          server {
+              listen 80 default_server;
+              listen [::]:80 default_server;
+
+              server_name _;
+              root {{ web_root }};
+              index index.html;
+
+              location / {
+                  try_files $uri $uri/ =404;
+              }
+          }
+      notify: Restart nginx
+
+    - name: Enable Lab 3 nginx site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/lab3-web
+        dest: /etc/nginx/sites-enabled/lab3-web
+        state: link
+        force: true
+      notify: Restart nginx
+
+    - name: Remove default nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Restart nginx
+
+    - name: Ensure nginx is enabled and running
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart nginx
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
